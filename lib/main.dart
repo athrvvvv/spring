@@ -50,6 +50,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
           await platform.invokeMethod('downloadMP3', {'url': _controller.text});
       setState(() {
         status = "Download complete!\nSaved at:\n$filePath";
+        _controller.clear(); 
       });
     } on PlatformException catch (e) {
       setState(() {
@@ -61,7 +62,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: Text('YouTube to MP3 Downloader')),
+        appBar: AppBar(title: Text('Spring Downloader')),
         body: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -76,7 +77,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
               SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _startDownload,
-                child: Text('Download as MP3'),
+                child: Text('Download and Set as Ringtone'),
               ),
               SizedBox(height: 20),
               Expanded(child: SingleChildScrollView(child: Text(status))),
