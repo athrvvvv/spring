@@ -33,6 +33,7 @@ class _DownloadScreenState extends State<DownloadScreen> {
   final platformShare = MethodChannel('com.example.spring/share');
 
   String status = 'Enter a YouTube URL';
+  bool _isLoading = false;
 
   @override
   void initState() {
@@ -63,18 +64,24 @@ class _DownloadScreenState extends State<DownloadScreen> {
     }
 
     setState(() {
-      status = "Starting download...";
+      status = "Downloading and setting ringtone...";
+      _isLoading = true;
     });
 
     try {
       final filePath = await platformDownload.invokeMethod('downloadMP3', {'url': _controller.text});
       setState(() {
-        status = "Download complete!\nSaved at:\n$filePath";
+        // Clean, simple success message with emojis
+        status = "✅ Downloaded!\n🔔 Ringtone set!";
         _controller.clear();
       });
     } on PlatformException catch (e) {
       setState(() {
-        status = "Failed: ${e.message}";
+        status = "❌ Failed: ${e.message}";
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
       });
     }
   }
@@ -82,27 +89,41 @@ class _DownloadScreenState extends State<DownloadScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-        appBar: AppBar(title: Text('Spring Downloader')),
-        body: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              TextField(
-                controller: _controller,
-                decoration: InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: "YouTube URL",
-                    hintText: "https://www.youtube.com/watch?v=..."),
+      appBar: AppBar(title: Text('Spring Downloader')),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            TextField(
+              controller: _controller,
+              decoration: InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: "YouTube URL",
+                hintText: "https://www.youtube.com/watch?v=...",
               ),
-              SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _startDownload,
-                child: Text('Download and Set as Ringtone'),
+            ),
+            SizedBox(height: 20),
+            _isLoading
+                ? Column(
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 10),
+                      Text("Working... Please wait"),
+                    ],
+                  )
+                : ElevatedButton(
+                    onPressed: _startDownload,
+                    child: Text('Download and Set as Ringtone'),
+                  ),
+            SizedBox(height: 20),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Text(status),
               ),
-              SizedBox(height: 20),
-              Expanded(child: SingleChildScrollView(child: Text(status))),
-            ],
-          ),
-        ));
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

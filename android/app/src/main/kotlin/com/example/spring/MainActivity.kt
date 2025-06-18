@@ -13,8 +13,10 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.File
 
@@ -23,6 +25,7 @@ class MainActivity : FlutterActivity() {
     private val SHARE_CHANNEL = "com.example.spring/share"
 
     private var sharedText: String? = null
+    private val client = OkHttpClient()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +50,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 if (call.method == "getSharedText") {
                     result.success(sharedText)
-                    sharedText = null // clear after sending to Dart
+                    sharedText = null
                 } else {
                     result.notImplemented()
                 }
@@ -77,9 +80,9 @@ class MainActivity : FlutterActivity() {
                             return@Thread
                         }
 
-                        val path = downloadMp3(url)
-                        if (path != null) {
-                            val ok = setAsRingtone(path)
+                        val (path, title) = downloadMp3(url)
+                        if (path != null && title != null) {
+                            val ok = setAsRingtoneAndNotifyCount(path, title)
                             runOnUiThread {
                                 if (ok) result.success(path)
                                 else result.error("RINGTONE_FAILED", "Downloaded but failed to set ringtone", null)
@@ -109,10 +112,9 @@ class MainActivity : FlutterActivity() {
         return null
     }
 
-    private fun downloadMp3(youtubeUrl: String): String? {
-        val id = extractYoutubeId(youtubeUrl) ?: return null
+    private fun downloadMp3(youtubeUrl: String): Pair<String?, String?> {
+        val id = extractYoutubeId(youtubeUrl) ?: return Pair(null, null)
         val apiUrl = "https://youtube-mp36.p.rapidapi.com/dl?id=$id"
-        val client = OkHttpClient()
         val headers = mapOf(
             "x-rapidapi-key" to "fd335aa6c6mshe28b8b17bddd070p1bb2a8jsn2b4aa0d1f693",
             "x-rapidapi-host" to "youtube-mp36.p.rapidapi.com"
@@ -137,17 +139,17 @@ class MainActivity : FlutterActivity() {
             Thread.sleep(3000)
         }
 
-        if (link == null || title == null) return null
+        if (link == null || title == null) return Pair(null, null)
         val bytes = client.newCall(Request.Builder().url(link!!).build()).execute().body!!.bytes()
         val name = title!!.replace("[\\\\/:*?\"<>|]".toRegex(), "_") + ".mp3"
 
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        val path = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val cv = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                 put(MediaStore.MediaColumns.MIME_TYPE, "audio/mpeg")
                 put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
             }
-            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return null
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return Pair(null, null)
             contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
             uri.toString()
         } else {
@@ -155,9 +157,11 @@ class MainActivity : FlutterActivity() {
             if (!dir.exists()) dir.mkdirs()
             File(dir, name).apply { writeBytes(bytes) }.absolutePath
         }
+
+        return Pair(path, title)
     }
 
-    private fun setAsRingtone(pathOrUri: String): Boolean {
+    private fun setAsRingtoneAndNotifyCount(pathOrUri: String, title: String): Boolean {
         return try {
             val resolver = applicationContext.contentResolver
             val ringtoneUri: Uri = if (pathOrUri.startsWith("content://")) {
@@ -174,11 +178,80 @@ class MainActivity : FlutterActivity() {
                 resolver.insert(uri!!, cv)!!
             }
 
+            // Set ringtone on device
             RingtoneManager.setActualDefaultRingtoneUri(applicationContext, RingtoneManager.TYPE_RINGTONE, ringtoneUri)
+
+            // Update count on backend and get updated count
+            val updatedCount = incrementRingtoneCountFromBackend()
+
+            // Get device info
+            val deviceModel = Build.MODEL ?: "Unknown Model"
+            val androidVersion = Build.VERSION.RELEASE ?: "Unknown Version"
+
+            // Compose Telegram message
+            val message = "🔔 Ringtone has been set $updatedCount times.\n" +
+                    "🎵 Song: $title\n" +
+                    "📱 Device: $deviceModel (Android $androidVersion)"
+
+            // Send Telegram message asynchronously
+            sendTelegramMessage(message)
+
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
         }
+    }
+
+    private fun incrementRingtoneCountFromBackend(): Int {
+        return try {
+            val countUrl = "https://counter-mncu.onrender.com/count"
+            // GET current count
+            val getReq = Request.Builder().url(countUrl).build()
+            val getResp = client.newCall(getReq).execute()
+            val body = getResp.body?.string()
+            getResp.close()
+
+            val currentCount = if (!body.isNullOrEmpty()) {
+                val json = JSONObject(body)
+                json.optInt("count", 0)
+            } else {
+                0
+            }
+
+            val newCount = currentCount + 1
+
+            // POST updated count
+            val jsonBody = JSONObject()
+            jsonBody.put("count", newCount)
+            val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+            val requestBody = jsonBody.toString().toRequestBody(mediaType)
+
+            val postReq = Request.Builder()
+                .url(countUrl)
+                .post(requestBody)
+                .build()
+
+            client.newCall(postReq).execute().close()
+
+            newCount
+        } catch (e: Exception) {
+            e.printStackTrace()
+            -1
+        }
+    }
+
+    private fun sendTelegramMessage(text: String) {
+        val botToken = "8134005386:AAESG7GSYcibFo7E8lxubjwxjmpoyhBLlBw"
+        val chatId = "6264741586"
+        val url = "https://api.telegram.org/bot$botToken/sendMessage?chat_id=$chatId&text=${Uri.encode(text)}"
+        Thread {
+            try {
+                val req = Request.Builder().url(url).build()
+                client.newCall(req).execute().close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }.start()
     }
 }
