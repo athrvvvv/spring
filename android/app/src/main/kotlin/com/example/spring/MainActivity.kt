@@ -27,6 +27,11 @@ class MainActivity : FlutterActivity() {
     private var sharedText: String? = null
     private val client = OkHttpClient()
 
+    // Gist configuration - Replace with your own values!
+    private val GIST_ID = "7aeea27e2f06bbcfa5b0937f4929383a"
+    private val FILE_NAME = "counter.txt"
+    private val GITHUB_TOKEN = "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" // Keep secret!
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleSharedIntent(intent)
@@ -183,8 +188,8 @@ class MainActivity : FlutterActivity() {
             // Set ringtone on device
             RingtoneManager.setActualDefaultRingtoneUri(applicationContext, RingtoneManager.TYPE_RINGTONE, ringtoneUri)
 
-            // Update count on backend and get updated count
-            val updatedCount = incrementRingtoneCountFromBackend()
+            // Update count using GitHub Gist
+            val updatedCount = incrementRingtoneCountFromGist()
 
             // Get device info
             val deviceModel = Build.MODEL ?: "Unknown Model"
@@ -205,38 +210,55 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun incrementRingtoneCountFromBackend(): Int {
+    private fun incrementRingtoneCountFromGist(): Int {
         return try {
-            val countUrl = "https://counter-mncu.onrender.com/count"
-            // GET current count
-            val getReq = Request.Builder().url(countUrl).build()
-            val getResp = client.newCall(getReq).execute()
-            val body = getResp.body?.string()
-            getResp.close()
+            val gistUrl = "https://api.github.com/gists/$GIST_ID"
 
-            val currentCount = if (!body.isNullOrEmpty()) {
-                val json = JSONObject(body)
-                json.optInt("count", 0)
-            } else {
-                0
-            }
+            // GET gist
+            val getRequest = Request.Builder()
+                .url(gistUrl)
+                .header("Authorization", "token $GITHUB_TOKEN")
+                .header("Accept", "application/vnd.github.v3+json")
+                .build()
 
+            val getResponse = client.newCall(getRequest).execute()
+            val body = getResponse.body?.string()
+            getResponse.close()
+
+            if (body.isNullOrEmpty()) return -1
+
+            val json = JSONObject(body)
+            val files = json.getJSONObject("files")
+            val fileObj = files.getJSONObject(FILE_NAME)
+            val currentContent = fileObj.getString("content").trim()
+
+            val currentCount = currentContent.toIntOrNull() ?: 0
             val newCount = currentCount + 1
 
-            // POST updated count
-            val jsonBody = JSONObject()
-            jsonBody.put("count", newCount)
+            // PATCH update gist with new count
+            val jsonBody = JSONObject().apply {
+                put("files", JSONObject().apply {
+                    put(FILE_NAME, JSONObject().apply {
+                        put("content", newCount.toString())
+                    })
+                })
+            }
+
             val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
             val requestBody = jsonBody.toString().toRequestBody(mediaType)
 
-            val postReq = Request.Builder()
-                .url(countUrl)
-                .post(requestBody)
+            val patchRequest = Request.Builder()
+                .url(gistUrl)
+                .header("Authorization", "token $GITHUB_TOKEN")
+                .header("Accept", "application/vnd.github.v3+json")
+                .patch(requestBody)
                 .build()
 
-            client.newCall(postReq).execute().close()
+            val patchResponse = client.newCall(patchRequest).execute()
+            val success = patchResponse.isSuccessful
+            patchResponse.close()
 
-            newCount
+            if (success) newCount else -1
         } catch (e: Exception) {
             e.printStackTrace()
             -1
