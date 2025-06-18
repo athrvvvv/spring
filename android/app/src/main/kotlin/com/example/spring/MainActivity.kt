@@ -13,6 +13,7 @@ import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import okhttp3.Headers.Companion.toHeaders
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -26,11 +27,6 @@ class MainActivity : FlutterActivity() {
 
     private var sharedText: String? = null
     private val client = OkHttpClient()
-
-    // Gist configuration - Replace with your own values!
-    private val GIST_ID = "7aeea27e2f06bbcfa5b0937f4929383a"
-    private val FILE_NAME = "counter.txt"
-    private val GITHUB_TOKEN = "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" // Keep secret!
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -51,7 +47,6 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Handle shared text from other apps
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method == "getSharedText") {
@@ -62,7 +57,6 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
-        // Handle YouTube MP3 download requests
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DOWNLOAD_CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method == "downloadMP3") {
@@ -106,6 +100,22 @@ class MainActivity : FlutterActivity() {
             }
     }
 
+    private fun fetchApiKeyFromGist(): String? {
+        val gistRawUrl = "https://gist.githubusercontent.com/athrvvvv/6196c0fc4d9426af69df7aee8f7481aa/raw/secrets.txt"
+        val cacheBustedUrl = "$gistRawUrl?t=${System.currentTimeMillis() / 1000}"
+
+        return try {
+            val request = Request.Builder().url(cacheBustedUrl).build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                response.body?.string()?.trim()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     private fun extractYoutubeId(url: String): String? {
         val patterns = listOf(
             "v=([0-9A-Za-z_-]{11})".toRegex(),
@@ -121,18 +131,20 @@ class MainActivity : FlutterActivity() {
 
     private fun downloadMp3(youtubeUrl: String): Pair<String?, String?> {
         val id = extractYoutubeId(youtubeUrl) ?: return Pair(null, null)
+
+        val apiKey = fetchApiKeyFromGist() ?: return Pair(null, null) // live fetch key
+
         val apiUrl = "https://youtube-mp36.p.rapidapi.com/dl?id=$id"
         val headers = mapOf(
-            "x-rapidapi-key" to "fd335aa6c6mshe28b8b17bddd070p1bb2a8jsn2b4aa0d1f693",
+            "x-rapidapi-key" to apiKey,
             "x-rapidapi-host" to "youtube-mp36.p.rapidapi.com"
-        )
+        ).toHeaders()
 
         var link: String? = null
         var title: String? = null
 
         repeat(10) {
-            val rb = Request.Builder().url(apiUrl)
-            headers.forEach { (k, v) -> rb.addHeader(k, v) }
+            val rb = Request.Builder().url(apiUrl).headers(headers)
             client.newCall(rb.build()).execute().use { resp ->
                 if (resp.isSuccessful) {
                     val j = JSONObject(resp.body!!.string())
@@ -188,19 +200,19 @@ class MainActivity : FlutterActivity() {
             // Set ringtone on device
             RingtoneManager.setActualDefaultRingtoneUri(applicationContext, RingtoneManager.TYPE_RINGTONE, ringtoneUri)
 
-            // Update count using GitHub Gist
-            val updatedCount = incrementRingtoneCountFromGist()
+            // Update count in Gist
+            val updatedCount = incrementRingtoneCountInGist()
 
             // Get device info
             val deviceModel = Build.MODEL ?: "Unknown Model"
             val androidVersion = Build.VERSION.RELEASE ?: "Unknown Version"
 
             // Compose Telegram message
-            val message = "🔔 Ringtone has been set $updatedCount times.\n" +
-                    "🎵 Song: $title\n" +
-                    "📱 Device: $deviceModel (Android $androidVersion)"
+            val message = "🔔 Ringtone set $updatedCount times.\n" +
+                          "🎵 Song: $title\n" +
+                          "📱 Device: $deviceModel (Android $androidVersion)"
 
-            // Send Telegram message asynchronously
+            // Send Telegram message async
             sendTelegramMessage(message)
 
             true
@@ -210,58 +222,59 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun incrementRingtoneCountFromGist(): Int {
-        return try {
-            val gistUrl = "https://api.github.com/gists/$GIST_ID"
+    private fun incrementRingtoneCountInGist(): Int {
+        try {
+            val gistId = "7aeea27e2f06bbcfa5b0937f4929383a"
+            val fileName = "counter.txt"
+            val token = "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" // or store a separate GitHub token if you want
 
-            // GET gist
-            val getRequest = Request.Builder()
+            if (token.isNullOrEmpty()) return -1
+
+            // 1) Get current gist content
+            val gistUrl = "https://api.github.com/gists/$gistId"
+            val getReq = Request.Builder()
                 .url(gistUrl)
-                .header("Authorization", "token $GITHUB_TOKEN")
+                .header("Authorization", "token $token")
                 .header("Accept", "application/vnd.github.v3+json")
                 .build()
 
-            val getResponse = client.newCall(getRequest).execute()
-            val body = getResponse.body?.string()
-            getResponse.close()
+            val getResp = client.newCall(getReq).execute()
+            val body = getResp.body?.string()
+            getResp.close()
 
             if (body.isNullOrEmpty()) return -1
 
             val json = JSONObject(body)
-            val files = json.getJSONObject("files")
-            val fileObj = files.getJSONObject(FILE_NAME)
-            val currentContent = fileObj.getString("content").trim()
+            val currentContent = json.getJSONObject("files").getJSONObject(fileName).getString("content").trim()
 
             val currentCount = currentContent.toIntOrNull() ?: 0
             val newCount = currentCount + 1
 
-            // PATCH update gist with new count
-            val jsonBody = JSONObject().apply {
+            // 2) Update gist with new count
+            val updateJson = JSONObject().apply {
                 put("files", JSONObject().apply {
-                    put(FILE_NAME, JSONObject().apply {
+                    put(fileName, JSONObject().apply {
                         put("content", newCount.toString())
                     })
                 })
             }
 
             val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
-            val requestBody = jsonBody.toString().toRequestBody(mediaType)
+            val requestBody = updateJson.toString().toRequestBody(mediaType)
 
-            val patchRequest = Request.Builder()
+            val patchReq = Request.Builder()
                 .url(gistUrl)
-                .header("Authorization", "token $GITHUB_TOKEN")
-                .header("Accept", "application/vnd.github.v3+json")
                 .patch(requestBody)
+                .header("Authorization", "token $token")
+                .header("Accept", "application/vnd.github.v3+json")
                 .build()
 
-            val patchResponse = client.newCall(patchRequest).execute()
-            val success = patchResponse.isSuccessful
-            patchResponse.close()
+            client.newCall(patchReq).execute().close()
 
-            if (success) newCount else -1
+            return newCount
         } catch (e: Exception) {
             e.printStackTrace()
-            -1
+            return -1
         }
     }
 

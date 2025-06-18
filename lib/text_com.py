@@ -1,45 +1,23 @@
 import requests
+import time
 
-GIST_ID = "7aeea27e2f06bbcfa5b0937f4929383a"
-FILE_NAME = "counter.txt"
-TOKEN = "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"
+# Base raw Gist URL
+BASE_RAW_URL = "https://gist.githubusercontent.com/athrvvvv/6196c0fc4d9426af69df7aee8f7481aa/raw/secrets.txt"
 
-headers = {
-    "Authorization": f"token {TOKEN}",
-    "Accept": "application/vnd.github.v3+json"
-}
+def get_latest_secret():
+    try:
+        # Add timestamp as a cache buster
+        cache_buster_url = f"{BASE_RAW_URL}?t={int(time.time())}"
+        response = requests.get(cache_buster_url)
+        response.raise_for_status()
+        return response.text.strip()
+    except requests.RequestException as e:
+        print(f"❌ Error fetching gist: {e}")
+        return None
 
-# Get current number from API
-response = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=headers)
-if response.status_code != 200:
-    print("Failed to get gist content")
-    exit()
-
-gist_data = response.json()
-current_content = gist_data['files'][FILE_NAME]['content'].strip()
-
-try:
-    current_number = int(current_content)
-except ValueError:
-    print("Content is not a valid integer")
-    exit()
-
-print("Current number:", current_number)
-
-# Increment
-new_number = current_number + 1
-
-# Update gist
-data = {
-    "files": {
-        FILE_NAME: {
-            "content": str(new_number)
-        }
-    }
-}
-
-update_response = requests.patch(f"https://api.github.com/gists/{GIST_ID}", json=data, headers=headers)
-if update_response.status_code == 200:
-    print("Gist updated successfully to", new_number)
+# Example usage
+secret = get_latest_secret()
+if secret:
+    print("🔑 Latest secret:", secret)
 else:
-    print("Failed to update gist:", update_response.status_code, update_response.text)
+    print("⚠️ Failed to fetch updated secret.")
