@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.Settings
@@ -18,11 +19,41 @@ import org.json.JSONObject
 import java.io.File
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.example.spring/download"
+    private val DOWNLOAD_CHANNEL = "com.example.spring/download"
+    private val SHARE_CHANNEL = "com.example.spring/share"
+
+    private var sharedText: String? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        handleSharedIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleSharedIntent(intent)
+    }
+
+    private fun handleSharedIntent(intent: Intent?) {
+        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
+            sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        }
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                if (call.method == "getSharedText") {
+                    result.success(sharedText)
+                    sharedText = null // clear after sending to Dart
+                } else {
+                    result.notImplemented()
+                }
+            }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DOWNLOAD_CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method == "downloadMP3") {
                     val url = call.argument<String>("url")
@@ -50,11 +81,13 @@ class MainActivity : FlutterActivity() {
                         if (path != null) {
                             val ok = setAsRingtone(path)
                             runOnUiThread {
-                                if (ok) result.success("Ringtone set successfully")
+                                if (ok) result.success(path)
                                 else result.error("RINGTONE_FAILED", "Downloaded but failed to set ringtone", null)
                             }
                         } else {
-                            runOnUiThread { result.error("DOWNLOAD_FAILED", "MP3 download failed", null) }
+                            runOnUiThread {
+                                result.error("DOWNLOAD_FAILED", "MP3 download failed", null)
+                            }
                         }
                     }.start()
                 } else {
@@ -81,12 +114,13 @@ class MainActivity : FlutterActivity() {
         val apiUrl = "https://youtube-mp36.p.rapidapi.com/dl?id=$id"
         val client = OkHttpClient()
         val headers = mapOf(
-            "x-rapidapi-key" to "d920e99b2emsh0af7fdf3d091a27p110dd5jsnf01d3bd9c2e9",
+            "x-rapidapi-key" to "fd335aa6c6mshe28b8b17bddd070p1bb2a8jsn2b4aa0d1f693",
             "x-rapidapi-host" to "youtube-mp36.p.rapidapi.com"
         )
 
         var link: String? = null
         var title: String? = null
+
         repeat(10) {
             val rb = Request.Builder().url(apiUrl)
             headers.forEach { (k, v) -> rb.addHeader(k, v) }

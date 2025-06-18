@@ -29,9 +29,30 @@ class DownloadScreen extends StatefulWidget {
 
 class _DownloadScreenState extends State<DownloadScreen> {
   final TextEditingController _controller = TextEditingController();
-  final platform = MethodChannel('com.example.spring/download');
+  final platformDownload = MethodChannel('com.example.spring/download');
+  final platformShare = MethodChannel('com.example.spring/share');
 
   String status = 'Enter a YouTube URL';
+
+  @override
+  void initState() {
+    super.initState();
+    _getSharedText();
+  }
+
+  Future<void> _getSharedText() async {
+    try {
+      final sharedText = await platformShare.invokeMethod<String>('getSharedText');
+      if (sharedText != null && sharedText.isNotEmpty) {
+        setState(() {
+          _controller.text = sharedText;
+          status = 'Received shared URL';
+        });
+      }
+    } on PlatformException catch (e) {
+      print("Failed to get shared text: '${e.message}'.");
+    }
+  }
 
   Future<void> _startDownload() async {
     if (_controller.text.isEmpty) {
@@ -46,11 +67,10 @@ class _DownloadScreenState extends State<DownloadScreen> {
     });
 
     try {
-      final filePath =
-          await platform.invokeMethod('downloadMP3', {'url': _controller.text});
+      final filePath = await platformDownload.invokeMethod('downloadMP3', {'url': _controller.text});
       setState(() {
         status = "Download complete!\nSaved at:\n$filePath";
-        _controller.clear(); 
+        _controller.clear();
       });
     } on PlatformException catch (e) {
       setState(() {
