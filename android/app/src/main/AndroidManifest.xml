@@ -4,15 +4,13 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
-    <!-- Optional: permission used internally -->
-    <!-- <uses-permission android:name="android.permission.SET_RINGTONE" /> -->
 
     <application
         android:name="${applicationName}"
         android:label="spring"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
-        
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -22,8 +20,7 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            
-            <!-- Theme applied before Flutter UI appears -->
+
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -34,7 +31,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Share intent filter -->
+            <!-- Share intent filter to receive shared text -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -42,13 +39,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Flutter embedding -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- Safe querying of apps for process text or share -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />

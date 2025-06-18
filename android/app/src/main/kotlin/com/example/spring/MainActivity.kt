@@ -46,6 +46,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Handle shared text from other apps
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SHARE_CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method == "getSharedText") {
@@ -56,6 +57,7 @@ class MainActivity : FlutterActivity() {
                 }
             }
 
+        // Handle YouTube MP3 download requests
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DOWNLOAD_CHANNEL)
             .setMethodCallHandler { call, result ->
                 if (call.method == "downloadMP3") {
